@@ -2,42 +2,50 @@
 
 Application web pour apprendre et travailler la percussion ouest-africaine en ensemble (djembés + duns) : partition interactive, son synthétisé, répertoire de rythmes, compositeur, échauffement, quiz d'oreille et guide interactif. Fichier unique, hors-ligne, pensé pour le mobile.
 
-**En ligne** : https://nmulongo-sys.github.io/magic-drums/ — ou ouvrir `magicdrums_app_v11.html` dans un navigateur (aucune installation).
-**Statut** : révision v11 (27 juin 2026) • fichier HTML unique, sans dépendance externe, **son 100 % synthétisé** (Web Audio API) — aucun échantillon audio requis, fonctionne hors ligne et sur mobile.
+**En ligne** : https://nmulongo-sys.github.io/magic-drums/ — ou ouvrir `magicdrums_app_v12.html` dans un navigateur (aucune installation).
+**Statut** : révision v12 (2 juillet 2026) • fichier HTML unique, sans dépendance externe, **son 100 % synthétisé** (Web Audio API) — aucun échantillon audio requis, fonctionne hors ligne et sur mobile.
 
 ## Utilisation
 
-Tout est dans un seul fichier, rien à installer. L'état est **sauvegardé automatiquement dans le navigateur**. Sept onglets :
+Tout est dans un seul fichier, rien à installer. L'état est **sauvegardé automatiquement dans le navigateur**. Cinq entrées de navigation (barre d'onglets en bas d'écran sur mobile) :
 
-- **Jouer** — la partition (grille) et les instruments : 3 djembés (Aigu / Médium / Grave) + 3 duns. Lecture, tempo, métronome, montée (accélération), mode gaucher, appels/breaks, et mixer (volume master + par instrument).
+- **Jouer** — la partition (grille) et les instruments : 3 djembés (Aigu / Médium / Grave) + 3 duns. Transport hiérarchisé : lecture et tempo toujours visibles, réglages secondaires (métronome, montée, gaucher, mode ensemble, cloches, mixer) derrière « Options ».
 - **Rythmes** — répertoire de rythmes ; réglages (nom, BPM/cycle) ; import/export **JSON** d'un rythme.
-- **Compositeur** — compositeur « à briques » : une bibliothèque de briques rythmiques à assembler en un cycle.
-- **Chauffe** — générateur d'échauffement.
-- **Créer par IA** — saisir un souhait ; l'appli produit un prompt à copier (génération assistée, hors de l'appli).
+- **Créer** — trois ateliers en sous-onglets : **Compositeur** (bibliothèque de briques rythmiques à assembler), **Chauffe** (générateur d'échauffement), **Par IA** (saisir un souhait ; l'appli produit un prompt à copier).
 - **Quiz** — entraînement de l'oreille (djembé ; fûts & cloche).
 - **Aide** — notation et impression.
 
-Un **guide « Premiers pas »** (tour guidé de 22 étapes) s'ouvre automatiquement au premier lancement, puis reste accessible via le bouton « 👋 Premiers pas ».
+Deux systèmes d'aide intégrés :
+- Un **guide « Premiers pas »** (tour guidé de 23 étapes) s'ouvre automatiquement au premier lancement, puis reste accessible via le bouton « 👋 Premiers pas ».
+- Un **mode aide « ? »** (barre du haut) : une fois activé, toucher n'importe quel élément affiche une bulle expliquant sa fonction, sans rien déclencher. Au survol souris, les mêmes fiches apparaissent en infobulle.
 
 ## Architecture & conventions
 
-**Forme générale.** Un seul fichier `magicdrums_app_v11.html` (HTML/CSS/JS, ~2070 lignes), sans bibliothèque externe. Le son est **entièrement synthétisé** via la Web Audio API (`AudioContext`, oscillateurs, bruit filtré, enveloppes de gain) — aucun fichier `.wav`/`.mp3` n'est chargé.
+**Forme générale.** Un seul fichier `magicdrums_app_v12.html` (HTML/CSS/JS), sans bibliothèque externe. Le son est **entièrement synthétisé** via la Web Audio API (`AudioContext`, oscillateurs, bruit filtré, enveloppes de gain) — aucun fichier `.wav`/`.mp3` n'est chargé.
 
-**Instruments & notation.** Trois djembés (Aigu / Médium / Grave) et trois duns (Kenkeni / Sangban / Dununba). Notation mnémotechnique via le bouton « traduction » : `Tu`/`Ta` = main droite, `Ku`/`Ka` = main gauche, plus la basse (dun). Frappes illustrées (mains « empreinte » + animation).
+**Instruments & notation.** Trois djembés (Aigu / Médium / Grave) et trois duns (Kenkeni / Sangban / Dununba). Notation mnémotechnique via le bouton « traduction » : `Tu`/`Ta` = main droite, `Ku`/`Ka` = main gauche, plus la basse (dun). Rendu v12 : fûts en vue de dessus réaliste (peau en dégradé, cordage laiton, ondes de frappe), baguettes bois à tête cerclée G/D, mains « empreinte » translucides animées.
 
 **Persistance (`localStorage`).**
 - `atelier_dunun_djembe_v3` — état courant de l'appli (partition/rythme), sauvegarde automatique ; `atelier_dunun_djembe_v3_ts` — horodatage de la dernière sauvegarde.
 - `md_wizard_seen_v2` — drapeau « guide vu » : le guide « Premiers pas » ne s'ouvre de lui-même qu'une fois.
 
-**Onglets.** Sept vues (`data-tab` : `jouer`, `rythmes`, `compositeur`, `chauffe`, `ia`, `quiz`, `aide`), navigation par `tabTo(name)`.
+**Onglets.** Sept vues (`data-tab` : `jouer`, `rythmes`, `compositeur`, `chauffe`, `ia`, `quiz`, `aide`), navigation par `tabTo(name)` — inchangé en v12 ; les vues `compositeur`/`chauffe`/`ia` sont regroupées sous l'entrée « Créer » (sous-onglets), mappage dans `TAB_GROUP`.
 
 **Répertoire.** Rythmes embarqués dans le fichier (tempo, parfois une source d'attribution). Import/export JSON pour sauvegarder ou partager un rythme.
 
 **Guide « Premiers pas ».** Bloc autonome en fin de `<body>` (marqueurs `<!-- WIZARD -->`), CSS/JS préfixés `#wiz`/`.wiz`, **lecture seule** du moteur : il n'appelle que `tabTo()` et ne touche ni `state`, ni l'audio, ni le séquenceur.
 
+**Bulles d'aide (v12).** Registre unique `window.MD_HELP` (~80 fiches `[sélecteur, titre, texte]`) défini dans le bloc « MODE AIDE » en fin de fichier, consommé par (1) le mode aide tactile « ? » (interception en phase capture, aucun appel au moteur) et (2) l'infobulle de survol `#global-tooltip-panel` héritée de la v11.
+
 > Documents de conception détaillés (ETAT, changelogs, méthode, briefs) : dossier `docs/`.
 
 ## Journal de développement
+
+### 2026-07-02 — v12 : refonte esthétique & ergonomique + mode aide généralisé
+- **Visuels** : canvas duns réécrit (fûts réalistes — peau en dégradé, cordage laiton, ombres, ondes de frappe ; baguettes bois courbées à tête cerclée G/D) ; SVG djembés redessiné (fût, cordage, zones en anneaux, mains translucides ombrées).
+- **Ergonomie** : navigation 7 → 5 entrées (« Créer » = Compositeur + Chauffe + Par IA en sous-onglets) ; barre d'onglets en bas d'écran sur mobile ; transport scindé principal/« Options » (état mémorisé) ; cases à cocher → interrupteurs ; sliders, selects et focus unifiés ; légende repliable.
+- **Aide** : registre unique de ~80 bulles d'explication couvrant chaque fonction ; nouveau mode aide « ? » (toucher un élément = bulle, sans déclencher l'action) ; l'infobulle de survol v11 est branchée sur le même registre ; wizard porté à 23 étapes.
+- Moteur inchangé (octet pour octet côté séquenceur/audio/persistance) ; `node --check` OK sur les 4 blocs script ; tests Chromium headless desktop + mobile sans erreur. Détail : `docs/magicdrums_CHANGELOG_v12.md`.
 
 ### 2026-07-02 — Mise en dépôt GitHub + README initial
 - Première documentation README de l'app (état v11).
