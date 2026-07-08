@@ -14,9 +14,24 @@ la **restriction d'origine** ci-dessous.
 ## 1. Obtenir une clé Gemini (gratuite)
 
 1. Va sur <https://aistudio.google.com/apikey> (compte Google).
-2. « Create API key » → copie la clé.
+2. « Create API key » → **crée la clé dans un projet SANS facturation activée**
+   (aucune carte bancaire). C'est la garantie « zéro frais » : sur un projet
+   sans facturation, dépasser le quota gratuit renvoie une erreur `429`, jamais
+   un débit.
 3. Le tier gratuit suffit largement pour un petit groupe. Voir les quotas :
    <https://ai.google.dev/gemini-api/docs/rate-limits>.
+
+> ⚠️ **Garantie « gratuit uniquement ».** Le caractère gratuit se joue au niveau
+> du *projet*, pas de la clé : il n'y a pas de réglage « clé limitée aux modèles
+> gratuits ». Deux règles suffisent :
+> - **N'active jamais la facturation** sur le projet de cette clé. Sur Gemini,
+>   activer la facturation supprime le tier gratuit et facture *chaque* appel dès
+>   le premier token. Besoin de payant ailleurs → **projet séparé**.
+> - Garde `GEMINI_MODEL` sur un modèle **Flash / Flash-Lite** (gratuit). Les
+>   modèles **Pro** sont payants depuis avril 2026.
+>
+> Note vie privée : sur le tier gratuit, les prompts/réponses peuvent servir à
+> améliorer les produits Google → n'y mets pas de données confidentielles.
 
 ## 2. Déployer le Worker
 
@@ -81,7 +96,7 @@ Gemini injoignable…).
 | variable         | défaut              | rôle                                   |
 |------------------|---------------------|----------------------------------------|
 | `GEMINI_API_KEY` | *(secret)*          | clé AI Studio — via `wrangler secret`  |
-| `GEMINI_MODEL`   | `gemini-2.0-flash`  | modèle Gemini                          |
+| `GEMINI_MODEL`   | `gemini-2.5-flash`  | modèle Gemini (tier gratuit : Flash)   |
 | `ALLOWED_ORIGIN` | `*`                 | origines CORS autorisées               |
 | `MAX_PROMPT`     | `8000`              | taille max du prompt (caractères)      |
 | `MAX_TOKENS`     | `2048`              | plafond de tokens en sortie            |

@@ -16,7 +16,7 @@
  *     dans l'app (onglet « Par IA » → Réglages IA).
  *
  * Variables optionnelles (wrangler.toml [vars] ou tableau de bord) :
- *   GEMINI_MODEL    modèle Gemini            (défaut "gemini-2.0-flash")
+ *   GEMINI_MODEL    modèle Gemini            (défaut "gemini-2.5-flash")
  *   ALLOWED_ORIGIN  origines autorisées, séparées par des virgules
  *                   (défaut "*"). Ex. "https://nmulongo-sys.github.io"
  *   MAX_PROMPT      taille max du prompt en caractères (défaut 8000)
@@ -83,7 +83,7 @@ export default {
       return json({ error: `Prompt trop long (max ${maxPrompt} caractères).` }, 413, request, env);
     }
 
-    const model = env.GEMINI_MODEL || "gemini-2.0-flash";
+    const model = env.GEMINI_MODEL || "gemini-2.5-flash";
     const maxTokens = parseInt(env.MAX_TOKENS || "2048", 10);
     let temperature = 1.0;
     if (typeof payload.temperature === "number" && isFinite(payload.temperature)) {
