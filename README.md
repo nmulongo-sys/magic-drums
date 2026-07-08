@@ -11,7 +11,7 @@ Tout est dans un seul fichier, rien à installer. L'état est sauvegardé automa
 
 - **Jouer** — la partition (grille) et les instruments : 3 djembés (Aigu / Médium / Grave) + 3 duns. Transport hiérarchisé : lecture et tempo toujours visibles, réglages secondaires (métronome, montée, gaucher, mode ensemble, cloches, mixer) derrière « Options ».
 - **Rythmes** — répertoire de rythmes ; réglages (nom, BPM/cycle) ; import/export JSON d'un rythme.
-- **Créer** — trois ateliers en sous-onglets : Compositeur (bibliothèque de briques rythmiques à assembler), Chauffe (générateur d'échauffement), Par IA (saisir un souhait ; l'appli produit un prompt à copier).
+- **Créer** — trois ateliers en sous-onglets : Compositeur (bibliothèque de briques rythmiques à assembler), Chauffe (générateur d'échauffement), Par IA (saisir un souhait → génération directe du rythme via un proxy IA, ou repli « copier le prompt »).
 - **Quiz** — entraînement de l'oreille (djembé ; fûts & cloche).
 - **Aide** — notation et impression.
 
@@ -30,6 +30,7 @@ Deux systèmes d'aide intégrés :
 
 - `atelier_dunun_djembe_v3` — état courant de l'appli (partition/rythme), sauvegarde automatique ; `atelier_dunun_djembe_v3_ts` — horodatage de la dernière sauvegarde.
 - `md_wizard_seen_v2` — drapeau « guide vu » : le guide « Premiers pas » ne s'ouvre de lui-même qu'une fois.
+- `md_ia_proxy_v1` — URL du proxy IA (onglet Par IA → Réglages IA), propre à ce navigateur, jamais commitée.
 
 **Onglets.** Sept vues (`data-tab` : `jouer`, `rythmes`, `compositeur`, `chauffe`, `ia`, `quiz`, `aide`), navigation par `tabTo(name)` — inchangé en v12 ; les vues `compositeur`/`chauffe`/`ia` sont regroupées sous l'entrée « Créer » (sous-onglets), mappage dans `TAB_GROUP`.
 
@@ -39,9 +40,17 @@ Deux systèmes d'aide intégrés :
 
 **Bulles d'aide (v12).** Registre unique `window.MD_HELP` (~80 fiches `[sélecteur, titre, texte]`) défini dans le bloc « MODE AIDE » en fin de fichier, consommé par (1) le mode aide tactile « ? » (interception en phase capture, aucun appel au moteur) et (2) l'infobulle de survol `#global-tooltip-panel` héritée de la v11.
 
+**Intégration IA (proxy).** L'onglet « Par IA » peut générer un rythme directement via une IA. Comme l'app est une page statique publique, aucune clé n'est embarquée : elle vit dans un petit **Cloudflare Worker** (`proxy/`) qui cache **une** clé Google Gemini partagée. L'app POSTe `{prompt, json:true}` vers l'URL du Worker (renseignée dans Réglages IA, `localStorage`), reçoit `{text}`, en extrait le JSON et le passe à `importParsed()`. Déploiement et garde-fous : `proxy/README.md`.
+
 **Documents de conception détaillés** (ETAT, changelogs, méthode, briefs) : dossier `docs/`.
 
 ## Journal de développement
+
+### 2026-07-08 — Génération de rythmes par IA en direct (onglet Par IA)
+- L'onglet « Par IA » ne se limite plus à copier un prompt : nouveau bouton **✨ Générer le rythme** qui appelle une IA et **importe le rythme directement** dans le répertoire (bascule ensuite sur Jouer). Le bouton « Copier le prompt » reste comme repli sans proxy.
+- **Modèle clé-partagée-derrière-proxy** (choix : peu d'utilisateurs, données non confidentielles). Les apps étant des pages statiques publiques (GitHub Pages), une clé écrite en dur serait scrapée. La clé Google Gemini vit donc dans un petit **Cloudflare Worker** (`proxy/gemini-proxy.js` + `wrangler.toml` + `proxy/README.md`) que l'app appelle ; la clé n'est jamais dans le HTML.
+- Côté app : bloc « Réglages IA » (URL du proxy, stockée en `localStorage` `md_ia_proxy_v1`), extraction robuste du JSON (retire les clôtures ```json), réutilisation d'`importParsed()`/`normalize()` existants, gestion d'erreurs (proxy manquant, réseau, quota, JSON invalide). Bulles d'aide + étape wizard mises à jour.
+- Vérifs : `node --check` OK sur les 5 blocs script ; test navigateur headless (proxy simulé) — avertissement sans proxy, persistance de l'URL, appel proxy, import 8→9, bascule d'onglet ; tests unitaires du Worker (CORS/preflight, 405/400/413/500/502, erreur Gemini relayée, restriction d'origine).
 
 ### 2026-07-05 — Note projet : prise de contact avec Djembe Loops
 - Rédaction d'un courriel (EN) à l'équipe de Djembe Loops (djembeloops.com) proposant une collaboration open source : réutilisation libre du code/interface de Magic Drums en échange d'un accès à leur système d'échantillons sonores et à leur bibliothèque de rythmes/phrases.

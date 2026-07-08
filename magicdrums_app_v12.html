@@ -769,14 +769,24 @@ nav.tabs .tico{display:none}
 <section id="tab-ia" class="tab">
   <div class="card">
     <h3>Créer un rythme avec une IA</h3>
-    <p class="hint"><b>1.</b> Décrivez le rythme voulu. <b>2.</b> Copiez le prompt et donnez-le à Claude (ou autre IA). <b>3.</b> Collez le JSON obtenu dans l'onglet Rythmes → « Importer le JSON collé ».</p>
+    <p class="hint">Décrivez le rythme voulu, puis <b>✨ Générer le rythme</b> : il est créé et ajouté au répertoire directement (proxy IA requis — voir Réglages). Sans proxy, utilisez <b>Copier le prompt</b> pour le donner à une IA et ré-importer le JSON via l'onglet Rythmes.</p>
     <textarea id="iaWish" style="min-height:64px;font-family:inherit;font-size:14px" placeholder="Ex. : rythme dunun simple et motivant pour accompagner des coureurs, avec un break original et un accompagnement djembé compatible, tempo ~150 BPM"></textarea>
     <div class="row" style="margin-top:8px">
-      <button class="btn primary" id="btnCopyPrompt">Copier le prompt complet</button>
+      <button class="btn primary" id="btnGenRhythm">✨ Générer le rythme</button>
+      <button class="btn" id="btnCopyPrompt">Copier le prompt</button>
       <span class="qfb" id="iaFb"></span>
     </div>
   </div>
-  <div class="card"><p class="hint mono" id="promptPreview" style="white-space:pre-wrap;font-size:11.5px"></p></div>
+  <details class="card" id="iaSettings">
+    <summary style="cursor:pointer;font-weight:600">Réglages IA</summary>
+    <p class="hint" style="margin-top:8px">URL du proxy IA (Cloudflare Worker qui cache la clé Gemini). Mémorisée dans ce navigateur uniquement — voir <span class="mono">proxy/README.md</span> pour la créer.</p>
+    <input id="iaProxyUrl" type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://gemini-proxy.votre-sous-domaine.workers.dev" style="width:100%;font-family:ui-monospace,monospace;font-size:12.5px">
+    <div class="row" style="margin-top:8px">
+      <button class="btn" id="btnSaveProxy">Enregistrer</button>
+      <span class="qfb" id="iaCfgFb"></span>
+    </div>
+  </details>
+  <div class="card"><p class="hint mono" id="promptPreview" style="white-space:pre-wrap;font-size:11.5px"></p></div>
 </section>
 
 <!-- ============ QUIZ ============ -->
@@ -1487,6 +1497,43 @@ Contrainte physique absolue : un seul joueur tient les 3 dununs avec 2 baguettes
 Le djembé doit être jouable à deux mains (1re pulsation de chaque temps = main forte, alternance d-g) et compatible avec les dununs. Reste musical : pulsation claire, breaks contrastés mais lisibles.`;
 }
 
+/* ================= Génération IA (proxy Gemini) ================= */
+const IA_PROXY_KEY="md_ia_proxy_v1";
+function getProxyUrl(){ try{ return (localStorage.getItem(IA_PROXY_KEY)||"").trim(); }catch(e){ return ""; } }
+function setProxyUrl(u){ try{ localStorage.setItem(IA_PROXY_KEY,(u||"").trim()); }catch(e){} }
+/* Extrait un objet JSON d'une réponse LLM (retire les clôtures ```json et le texte autour). */
+function extractJson(text){
+  let s=String(text||"").trim();
+  const fence=s.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if(fence) s=fence[1].trim();
+  const i=s.indexOf("{"), j=s.lastIndexOf("}");
+  if(i>=0 && j>i) s=s.slice(i,j+1);
+  return JSON.parse(s);
+}
+async function generateRhythm(){
+  const url=getProxyUrl();
+  if(!url){ toast("iaFb","Configurez d'abord l'URL du proxy dans « Réglages IA ».",false); const s=document.getElementById("iaSettings"); if(s) s.open=true; return; }
+  const btn=document.getElementById("btnGenRhythm");
+  const oldLabel=btn?btn.textContent:"";
+  if(btn){ btn.disabled=true; btn.textContent="⏳ Génération…"; }
+  toast("iaFb","Génération en cours…",true);
+  try{
+    const resp=await fetch(url,{ method:"POST", headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({ prompt:buildPrompt(), json:true, temperature:0.95 }) });
+    let data={}; try{ data=await resp.json(); }catch(e){}
+    if(!resp.ok){ throw new Error(data.error || ("Erreur "+resp.status)); }
+    if(!data.text){ throw new Error("Réponse vide du proxy."); }
+    const obj=extractJson(data.text);
+    const n=importParsed(obj);
+    toast("iaFb",n+" rythme(s) généré(s) ✓",true);
+    tabTo("jouer");
+  }catch(e){
+    toast("iaFb","Échec : "+e.message,false);
+  }finally{
+    if(btn){ btn.disabled=false; btn.textContent=oldLabel; }
+  }
+}
+
 /* ================= Quiz ================= */
 const QSETS={ dunun:[{id:"kenkeni",l:"Kenkeni"},{id:"sangban",l:"Sangban"},{id:"dununba",l:"Dundun"},{id:"cloche",l:"Cloche"}],
   djembe:[{id:"B",l:"Basse"},{id:"I",l:"Ton"},{id:"X",l:"Claqué"}] };
@@ -1746,6 +1793,10 @@ function wire(){
   document.getElementById("btnCopyJson").onclick=()=>{ const box=document.getElementById("jsonBox"); if(!box.value)box.value=rhythmJson(current()); copyText(box.value,"ioFb","JSON copié ✓"); };
   document.getElementById("btnImportText").onclick=()=>{ const res=tryImportText(document.getElementById("jsonBox").value); toast("ioFb",res.msg,res.ok); };
   document.getElementById("btnCopyPrompt").onclick=()=>copyText(buildPrompt(),"iaFb","Prompt copié ✓ — collez-le dans Claude");
+  document.getElementById("btnGenRhythm").onclick=generateRhythm;
+  const proxyInput=document.getElementById("iaProxyUrl");
+  if(proxyInput){ proxyInput.value=getProxyUrl();
+    document.getElementById("btnSaveProxy").onclick=()=>{ setProxyUrl(proxyInput.value); toast("iaCfgFb", proxyInput.value.trim()?"URL enregistrée ✓":"URL effacée.", true); }; }
   document.getElementById("iaWish").oninput=()=>{ document.getElementById("promptPreview").textContent=buildPrompt(); };
   document.getElementById("qmDunun").onclick=()=>{ qMode="dunun"; document.getElementById("qmDunun").classList.add("on"); document.getElementById("qmDjembe").classList.remove("on"); qRender(); };
   document.getElementById("qmDjembe").onclick=()=>{ qMode="djembe"; document.getElementById("qmDjembe").classList.add("on"); document.getElementById("qmDunun").classList.remove("on"); qRender(); };
@@ -2115,6 +2166,8 @@ var HELP=window.MD_HELP=[
  ["#chApply","Poser sur le djembé","Écrit la phrase sur la ligne Djembé aigu du rythme courant."],
  /* --- IA --- */
  ["#iaWish","Votre souhait","Décrivez le rythme voulu (ambiance, tempo, usage) : l'appli construit le prompt complet en dessous."],
+ ["#btnGenRhythm","Générer le rythme","Génère le rythme directement via le proxy IA et l'ajoute au répertoire. Nécessite l'URL du proxy (Réglages IA)."],
+ ["#iaProxyUrl","URL du proxy IA","Adresse du Cloudflare Worker qui cache la clé Gemini. Stockée dans ce navigateur uniquement."],
  ["#btnCopyPrompt","Copier le prompt","Copie un prompt prêt à coller dans une IA. Ré-importez ensuite le JSON obtenu via Rythmes → « Importer le JSON collé »."],
  ["#promptPreview","Aperçu du prompt","Ce qui sera copié : votre souhait + le format JSON attendu par l'appli."],
  /* --- quiz --- */
@@ -2369,7 +2422,7 @@ if(document.readyState==="loading") document.addEventListener("DOMContentLoaded"
 
     { sec:'Créer par IA', tab:'ia', sel:'#iaWish',
       title:'Créer un rythme avec une IA',
-      html:'Décrivez le rythme souhaité : l’appli construit un <b>prompt complet</b> (aperçu en dessous). <b>Copier le prompt</b>, collez-le dans une IA, puis ré-importez le JSON obtenu via l’onglet Rythmes.' },
+      html:'Décrivez le rythme souhaité. Avec un <b>proxy IA</b> configuré (Réglages IA), <b>✨ Générer le rythme</b> le crée directement. Sinon <b>Copier le prompt</b>, collez-le dans une IA, puis ré-importez le JSON via l’onglet Rythmes.' },
 
     { sec:'Quiz', tab:'quiz', sel:'#qPlay',
       title:'Entraîner son oreille',
