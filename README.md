@@ -40,11 +40,15 @@ Deux systèmes d'aide intégrés :
 
 **Bulles d'aide (v12).** Registre unique `window.MD_HELP` (~80 fiches `[sélecteur, titre, texte]`) défini dans le bloc « MODE AIDE » en fin de fichier, consommé par (1) le mode aide tactile « ? » (interception en phase capture, aucun appel au moteur) et (2) l'infobulle de survol `#global-tooltip-panel` héritée de la v11.
 
-**Intégration IA (proxy).** L'onglet « Par IA » peut générer un rythme directement via une IA. Comme l'app est une page statique publique, aucune clé n'est embarquée : elle vit dans un petit **Cloudflare Worker** (`proxy/`) qui cache **une** clé Google Gemini partagée. L'app POSTe `{prompt, json:true}` vers l'URL du Worker (renseignée dans Réglages IA, `localStorage`), reçoit `{text}`, en extrait le JSON et le passe à `importParsed()`. Déploiement et garde-fous : `proxy/README.md`.
+**Intégration IA (proxy).** L'onglet « Par IA » peut générer un rythme directement via une IA. Comme l'app est une page statique publique, aucune clé n'est embarquée : elle vit dans un petit **Cloudflare Worker** (`proxy/`) qui cache **une** clé Google Gemini partagée. L'app POSTe `{prompt, json:true}` vers l'URL du Worker (par défaut le proxy déployé `https://gemini-proxy.nmulongo.workers.dev` ; surchargeable dans Réglages IA, `localStorage`), reçoit `{text}`, en extrait le JSON et le passe à `importParsed()`. Déploiement et garde-fous : `proxy/README.md`.
 
 **Documents de conception détaillés** (ETAT, changelogs, méthode, briefs) : dossier `docs/`.
 
 ## Journal de développement
+
+### 2026-07-09 — Proxy déployé + URL par défaut dans l'app
+- Proxy `gemini-proxy` déployé sur Cloudflare (`https://gemini-proxy.nmulongo.workers.dev`, modèle `gemini-2.5-flash`, `ALLOWED_ORIGIN` = `https://nmulongo-sys.github.io`). Fichier `proxy/worker.js` (ex-`gemini-proxy.js`) aligné sur le déploiement : **refus d'origine `403`** avant tout appel Gemini (protège le quota partagé) ; `proxy/README.md` réécrit pour la réalité du déploiement (tableau de bord, maintenance, variables).
+- L'URL du proxy est désormais **valeur par défaut dans le code** (`IA_PROXY_DEFAULT`) : le champ « Réglages IA » est pré-rempli, la génération marche sans aucune manip pour les utilisateurs. Un utilisateur peut toujours pointer un autre proxy.
 
 ### 2026-07-08 — Génération de rythmes par IA en direct (onglet Par IA)
 - L'onglet « Par IA » ne se limite plus à copier un prompt : nouveau bouton **✨ Générer le rythme** qui appelle une IA et **importe le rythme directement** dans le répertoire (bascule ensuite sur Jouer). Le bouton « Copier le prompt » reste comme repli sans proxy.

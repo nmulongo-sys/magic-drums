@@ -1,22 +1,20 @@
 /*
  * gemini-proxy — Cloudflare Worker
  * ---------------------------------
- * Petit proxy CORS qui cache UNE clé Google Gemini partagée, pour que les
- * applications statiques (Magic Drums, Métronome…) puissent générer du contenu
- * par IA sans exposer la clé dans le HTML public.
+ * Proxy CORS qui cache UNE clé Google Gemini partagée, pour que les applications
+ * statiques (Magic Drums, Métronome…) génèrent du contenu par IA sans jamais
+ * exposer la clé dans le HTML public. Une seule URL, un seul quota, ~20 users.
  *
- * Pensé pour « peu d'utilisateurs, données non confidentielles ». Ce n'est pas
- * une passerelle durcie : voir les garde-fous (origine, taille, quota Gemini).
+ * Déployé via le tableau de bord Cloudflare (sans terminal) :
+ *   Workers & Pages → Create → coller ce fichier → Deploy.
+ *   Puis Settings → Variables :
+ *     - GEMINI_API_KEY  (Secret, chiffré)   ← clé AI Studio
+ *     - ALLOWED_ORIGIN  (Text)              ← "https://nmulongo-sys.github.io"
+ *   URL en ligne : https://gemini-proxy.nmulongo.workers.dev
  *
- * Déploiement (voir proxy/README.md pour le détail) :
- *   1. npm i -g wrangler   (ou npx wrangler)
- *   2. wrangler secret put GEMINI_API_KEY      ← colle ta clé AI Studio ici
- *   3. wrangler deploy
- *   → tu obtiens une URL https://gemini-proxy.<toi>.workers.dev à coller
- *     dans l'app (onglet « Par IA » → Réglages IA).
- *
- * Variables optionnelles (wrangler.toml [vars] ou tableau de bord) :
- *   GEMINI_MODEL    modèle Gemini            (défaut "gemini-2.5-flash")
+ * Variables (Settings → Variables and secrets) :
+ *   GEMINI_API_KEY  (secret, obligatoire)  clé AI Studio
+ *   GEMINI_MODEL    modèle Gemini           (défaut "gemini-2.5-flash", tier gratuit)
  *   ALLOWED_ORIGIN  origines autorisées, séparées par des virgules
  *                   (défaut "*"). Ex. "https://nmulongo-sys.github.io"
  *   MAX_PROMPT      taille max du prompt en caractères (défaut 8000)
@@ -24,20 +22,28 @@
  *
  * Contrat client (POST JSON) :
  *   { "prompt": "…", "json": true, "temperature": 0.9 }
- *     - prompt      (obligatoire) texte envoyé au modèle
- *     - json        (optionnel)   force une réponse application/json
- *     - temperature (optionnel)   0..2, sinon défaut 1.0
- * Réponse : { "text": "…" }  ou  { "error": "…" } avec un code HTTP adapté.
+ * Réponse : { "text": "…" }  ou  { "error": "…" } avec un code HTTP adapté
+ *   (400 requête invalide, 403 origine non autorisée, 413 prompt trop long,
+ *    429 quota, 502 Gemini injoignable).
  */
 
 const GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models";
 
+function allowedOrigins(env) {
+  return (env.ALLOWED_ORIGIN || "*").split(",").map((s) => s.trim()).filter(Boolean);
+}
 function pickOrigin(request, env) {
-  const allowed = (env.ALLOWED_ORIGIN || "*").split(",").map((s) => s.trim()).filter(Boolean);
+  const allowed = allowedOrigins(env);
   const origin = request.headers.get("Origin") || "";
   if (allowed.includes("*")) return "*";
   if (origin && allowed.includes(origin)) return origin;
   return allowed[0] || "";
+}
+function originAllowed(request, env) {
+  const allowed = allowedOrigins(env);
+  if (allowed.includes("*")) return true;
+  const origin = request.headers.get("Origin") || "";
+  return !!origin && allowed.includes(origin);
 }
 
 function corsHeaders(request, env) {
@@ -59,6 +65,14 @@ function json(body, status, request, env) {
 
 export default {
   async fetch(request, env) {
+    // Restriction d'origine : protège le quota partagé contre le pillage.
+    if (!originAllowed(request, env)) {
+      if (request.method === "OPTIONS") {
+        return new Response(null, { status: 403, headers: corsHeaders(request, env) });
+      }
+      return json({ error: "Origine non autorisée." }, 403, request, env);
+    }
+
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: corsHeaders(request, env) });
     }

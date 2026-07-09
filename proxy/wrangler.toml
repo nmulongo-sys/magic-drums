@@ -5,7 +5,7 @@
 #   wrangler secret put GEMINI_API_KEY
 
 name = "gemini-proxy"
-main = "gemini-proxy.js"
+main = "worker.js"
 compatibility_date = "2025-01-01"
 
 [vars]
@@ -15,10 +15,9 @@ compatibility_date = "2025-01-01"
 # Alternative à plus haut quota gratuit : "gemini-2.5-flash-lite".
 GEMINI_MODEL = "gemini-2.5-flash"
 
-# Restreins aux origines de tes apps une fois déployées (recommandé).
-# Laisse "*" seulement le temps des tests.
-ALLOWED_ORIGIN = "*"
-# Exemple : ALLOWED_ORIGIN = "https://nmulongo-sys.github.io"
+# Origines autorisées (protège le quota partagé). Les apps sont servies ici :
+ALLOWED_ORIGIN = "https://nmulongo-sys.github.io"
+# Plusieurs origines : séparer par des virgules. "*" = tout autoriser (tests).
 
 # Garde-fous
 MAX_PROMPT = "8000"

@@ -779,7 +779,7 @@ nav.tabs .tico{display:none}
   </div>
   <details class="card" id="iaSettings">
     <summary style="cursor:pointer;font-weight:600">Réglages IA</summary>
-    <p class="hint" style="margin-top:8px">URL du proxy IA (Cloudflare Worker qui cache la clé Gemini). Mémorisée dans ce navigateur uniquement — voir <span class="mono">proxy/README.md</span> pour la créer.</p>
+    <p class="hint" style="margin-top:8px">Proxy IA (Cloudflare Worker qui cache la clé Gemini) <b>déjà configuré</b> — rien à faire. Ce champ ne sert qu'à pointer un autre proxy ; il est mémorisé dans ce navigateur. Détails : <span class="mono">proxy/README.md</span>.</p>
     <input id="iaProxyUrl" type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://gemini-proxy.votre-sous-domaine.workers.dev" style="width:100%;font-family:ui-monospace,monospace;font-size:12.5px">
     <div class="row" style="margin-top:8px">
       <button class="btn" id="btnSaveProxy">Enregistrer</button>
@@ -1499,7 +1499,10 @@ Le djembé doit être jouable à deux mains (1re pulsation de chaque temps = mai
 
 /* ================= Génération IA (proxy Gemini) ================= */
 const IA_PROXY_KEY="md_ia_proxy_v1";
-function getProxyUrl(){ try{ return (localStorage.getItem(IA_PROXY_KEY)||"").trim(); }catch(e){ return ""; } }
+/* Proxy partagé déployé (Cloudflare Worker cachant la clé Gemini) : valeur par défaut
+   pour que la génération marche sans manip. Un utilisateur peut coller la sienne. */
+const IA_PROXY_DEFAULT="https://gemini-proxy.nmulongo.workers.dev";
+function getProxyUrl(){ try{ return ((localStorage.getItem(IA_PROXY_KEY)||"").trim())||IA_PROXY_DEFAULT; }catch(e){ return IA_PROXY_DEFAULT; } }
 function setProxyUrl(u){ try{ localStorage.setItem(IA_PROXY_KEY,(u||"").trim()); }catch(e){} }
 /* Extrait un objet JSON d'une réponse LLM (retire les clôtures ```json et le texte autour). */
 function extractJson(text){
