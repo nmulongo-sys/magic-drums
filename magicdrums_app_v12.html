@@ -618,6 +618,13 @@ nav.tabs .tico{display:none}
       <label class="chk"><input type="checkbox" id="modeEns"> Mode ensemble</label>
       <label class="chk"><input type="checkbox" id="showBells" checked> Cloches</label>
       <label class="chk"><input type="checkbox" id="showMixer"> 🎚️ Volumes</label>
+      <span class="exp-audio" style="display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap">
+        <span class="pill">Export audio</span>
+        <select id="expDur" class="btn" title="Durée enregistrée de la boucle courante"><option value="10">10 s</option><option value="20">20 s</option><option value="30" selected>30 s</option><option value="60">60 s</option></select>
+        <button class="btn" id="btnExpWav">WAV</button>
+        <button class="btn" id="btnExpMp3">MP3</button>
+        <span class="qfb" id="expFb" style="min-height:0"></span>
+      </span>
     </div>
   </div>
 <div class="mixer-panel" id="mixerPanel"></div>
@@ -2815,6 +2822,88 @@ if(document.readyState==="loading") document.addEventListener("DOMContentLoaded"
 })();
 </script>
 <!-- =================== FIN COMPTE (Supabase · lien magique) =================== -->
+
+<!-- ===================== EXPORT AUDIO (WAV hors-ligne · MP3 via encodeur) ===================== -->
+<script>
+/* ===== Export audio : capte la sortie master en temps réel puis encode WAV/MP3 ===== */
+(function(){
+  function el(id){ return document.getElementById(id); }
+  function fb(m,ok){ var e=el('expFb'); if(e){ e.textContent=m||''; e.className='qfb '+(ok?'good':'badf'); } }
+  var busy=false;
+
+  function baseName(){ try{ var r=(typeof current==='function')?current():null; var n=(r&&r.name)?r.name:'rythme'; return (n.replace(/[^\w\-]+/g,'_').slice(0,60))||'rythme'; }catch(e){ return 'rythme'; } }
+  function dl(blob, ext){ var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=baseName()+'.'+ext; document.body.appendChild(a); a.click(); a.remove(); setTimeout(function(){ URL.revokeObjectURL(a.href); },1500); }
+
+  function floatTo16(f){ var n=f.length, o=new Int16Array(n); for(var i=0;i<n;i++){ var s=f[i]<-1?-1:(f[i]>1?1:f[i]); o[i]=s<0?s*0x8000:s*0x7FFF; } return o; }
+  function encodeWAV(f, sr){
+    var i16=floatTo16(f), n=i16.length;
+    var buf=new ArrayBuffer(44+n*2), v=new DataView(buf);
+    function ws(o,s){ for(var i=0;i<s.length;i++) v.setUint8(o+i, s.charCodeAt(i)); }
+    ws(0,'RIFF'); v.setUint32(4,36+n*2,true); ws(8,'WAVE'); ws(12,'fmt ');
+    v.setUint32(16,16,true); v.setUint16(20,1,true); v.setUint16(22,1,true);
+    v.setUint32(24,sr,true); v.setUint32(28,sr*2,true); v.setUint16(32,2,true); v.setUint16(34,16,true);
+    ws(36,'data'); v.setUint32(40,n*2,true);
+    var off=44; for(var i=0;i<n;i++){ v.setInt16(off,i16[i],true); off+=2; }
+    return new Blob([buf],{type:'audio/wav'});
+  }
+  function loadLame(cb){
+    if(window.lamejs) return cb(window.lamejs);
+    var s=document.createElement('script');
+    s.src='https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js';
+    s.onload=function(){ cb(window.lamejs||null); };
+    s.onerror=function(){ cb(null); };
+    document.head.appendChild(s);
+  }
+  function finish(data, sr, format){
+    if(!data.length){ fb('Rien à exporter (aucun son capté).',false); busy=false; return; }
+    if(format==='wav'){ dl(encodeWAV(data,sr),'wav'); fb('WAV exporté ✓',true); busy=false; return; }
+    fb('Encodage MP3…',true);
+    loadLame(function(L){
+      if(!L||!L.Mp3Encoder){ fb('MP3 indisponible (hors-ligne ?) — WAV exporté à la place.',false); dl(encodeWAV(data,sr),'wav'); busy=false; return; }
+      try{
+        var enc=new L.Mp3Encoder(1, sr, 128), i16=floatTo16(data), out=[], block=1152;
+        for(var i=0;i<i16.length;i+=block){ var b=enc.encodeBuffer(i16.subarray(i,i+block)); if(b.length)out.push(b); }
+        var end=enc.flush(); if(end.length)out.push(end);
+        dl(new Blob(out,{type:'audio/mpeg'}),'mp3'); fb('MP3 exporté ✓',true);
+      }catch(e){ fb('Échec MP3 : '+(e&&e.message||e),false); }
+      busy=false;
+    });
+  }
+
+  function run(seconds, format){
+    if(busy){ return; }
+    if(typeof audio!=='function'){ fb('Moteur audio indisponible.',false); return; }
+    var c; try{ c=audio(); }catch(e){ c=null; }
+    if(!c || typeof master==='undefined' || !master){ fb('Moteur audio indisponible.',false); return; }
+    busy=true;
+    var startedByUs=false, sr=c.sampleRate, chunks=[], total=0;
+    var sp=c.createScriptProcessor(4096,1,1), sink=c.createGain(); sink.gain.value=0;
+    sp.onaudioprocess=function(e){ var d=e.inputBuffer.getChannelData(0); chunks.push(new Float32Array(d)); total+=d.length; };
+    try{ master.connect(sp); }catch(e){}
+    sp.connect(sink); sink.connect(c.destination);
+    try{ if(!state.playing && typeof start==='function'){ start(); startedByUs=true; } }catch(e){}
+    fb('Enregistrement… ('+seconds+' s)',true);
+    setTimeout(function(){
+      try{ master.disconnect(sp); }catch(e){}
+      try{ sp.disconnect(); }catch(e){}
+      try{ sink.disconnect(); }catch(e){}
+      sp.onaudioprocess=null;
+      if(startedByUs){ try{ if(typeof stop==='function') stop(); }catch(e){} }
+      var data=new Float32Array(total), off=0;
+      chunks.forEach(function(ch){ data.set(ch,off); off+=ch.length; });
+      finish(data, sr, format);
+    }, seconds*1000 + 150);
+  }
+
+  function wire(){
+    var w=el('btnExpWav'), m=el('btnExpMp3'), d=el('expDur');
+    if(w&&!w._wired){ w._wired=true; w.addEventListener('click', function(){ run(+((d&&d.value)||30),'wav'); }); }
+    if(m&&!m._wired){ m._wired=true; m.addEventListener('click', function(){ run(+((d&&d.value)||30),'mp3'); }); }
+  }
+  if(document.readyState!=='loading') wire(); else document.addEventListener('DOMContentLoaded', wire);
+})();
+</script>
+<!-- =================== FIN EXPORT AUDIO =================== -->
 
 </body>
 </html>
