@@ -427,6 +427,7 @@ nav.tabs .tico{display:none}
 </style>
 <script>/* Chargeur de thème du portail Formation Musicale : ?theme= -> localStorage['fm-theme'] */
 (function(){try{var q=new URLSearchParams(location.search),t=q.get('theme');if(t){localStorage.setItem('fm-theme',t);}else{t=localStorage.getItem('fm-theme');}if(t==='clair'||t==='sombre'){document.documentElement.setAttribute('data-fm-theme',t);}}catch(e){}})();</script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
 
@@ -462,6 +463,9 @@ nav.tabs .tico{display:none}
   </div>
   <div class="tgroup">
     <button class="tbtn helpm" id="btnHelpMode" aria-pressed="false" title="Mode aide : touchez un élément pour voir à quoi il sert">?</button>
+  </div>
+  <div class="tgroup" id="accountGroup">
+    <button class="tbtn" id="btnAccount" title="Se connecter par lien magique">Se connecter</button>
   </div>
 </div>
 
@@ -2539,6 +2543,187 @@ if(document.readyState==="loading") document.addEventListener("DOMContentLoaded"
 })();
 </script>
 <!-- =================== FIN WIZARD « Premiers pas » (v11) =================== -->
+
+<!-- ===================== COMPTE (Supabase · lien magique) ===================== -->
+<style id="acctCss">
+  #acctDim{position:fixed;inset:0;background:rgba(8,6,4,.62);z-index:9500;display:none}
+  #acctDim.show{display:block}
+  #acctCard{position:fixed;z-index:9502;left:50%;top:50%;transform:translate(-50%,-50%);
+    width:min(92vw,380px);background:var(--wood-2);border:1px solid var(--line-2);border-radius:16px;
+    padding:20px 20px 16px;box-shadow:0 18px 50px rgba(0,0,0,.5);color:var(--skin)}
+  #acctCard h3{margin:0 0 6px;font:700 18px Fraunces,serif;color:var(--skin)}
+  #acctCard p{margin:0 0 12px;color:var(--skin-dim);font:400 13px/1.45 Inter}
+  #acctCard input{width:100%;padding:11px 12px;border-radius:10px;border:1px solid var(--line-2);
+    background:var(--wood-1);color:var(--skin);font:500 15px Inter;margin-bottom:10px}
+  #acctCard input:focus-visible{outline:2px solid var(--brass);outline-offset:1px}
+  #acctCard .acct-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:6px;flex-wrap:wrap}
+  #acctFb{min-height:20px;font:600 13px Inter;margin:2px 0 4px}
+  #acctFb.good{color:var(--ok)} #acctFb.bad{color:var(--bad)}
+</style>
+<div id="acctDim" aria-hidden="true"></div>
+<div id="acctCard" role="dialog" aria-modal="true" aria-labelledby="acctTitle" style="display:none">
+  <h3 id="acctTitle">Se connecter</h3>
+  <div id="acctBody"></div>
+</div>
+<script>
+/* ===== Compte utilisateur : connexion par lien magique + profil (pseudo) ===== */
+(function(){
+  var SB_URL="https://hifqtzxhmboxbruraiab.supabase.co";
+  var SB_KEY="sb_publishable_HdA4ThMx_yDk7212nJ_sIg_J18wCNYK";
+  /* Client Supabase partagé (réutilisable par la future bibliothèque) */
+  window.fmSupabase=function(){
+    if(window._fmSb) return window._fmSb;
+    if(!(window.supabase&&window.supabase.createClient)) return null;
+    window._fmSb=window.supabase.createClient(SB_URL,SB_KEY);
+    return window._fmSb;
+  };
+
+  var dim=document.getElementById('acctDim');
+  var card=document.getElementById('acctCard');
+  var titleEl=document.getElementById('acctTitle');
+  var bodyEl=document.getElementById('acctBody');
+  var btn=document.getElementById('btnAccount');
+  var currentUser=null, currentProfil=null, autoPrompted=false;
+
+  function openModal(){ dim.classList.add('show'); card.style.display='block'; }
+  function closeModal(){ dim.classList.remove('show'); card.style.display='none'; bodyEl.innerHTML=''; }
+  dim.addEventListener('click', closeModal);
+  document.addEventListener('keydown', function(e){ if(e.key==='Escape' && card.style.display==='block') closeModal(); });
+  function esc(s){ var d=document.createElement('div'); d.textContent=(s==null?'':String(s)); return d.innerHTML; }
+  function fb(msg,ok){ var el=document.getElementById('acctFb'); if(el){ el.textContent=msg; el.className=(ok?'good':'bad'); } }
+
+  /* --- écran : saisie e-mail, envoi du lien magique --- */
+  function showLogin(){
+    titleEl.textContent="Se connecter";
+    bodyEl.innerHTML=
+      '<p>Reçois un lien magique par e-mail — aucun mot de passe à retenir.</p>'+
+      '<input id="acctEmail" type="email" inputmode="email" autocomplete="email" placeholder="ton@email.fr">'+
+      '<div id="acctFb"></div>'+
+      '<div class="acct-actions">'+
+        '<button class="tbtn" id="acctCancel">Annuler</button>'+
+        '<button class="tbtn accent" id="acctSend">Envoyer le lien</button>'+
+      '</div>';
+    var email=document.getElementById('acctEmail');
+    document.getElementById('acctCancel').onclick=closeModal;
+    document.getElementById('acctSend').onclick=sendLink;
+    email.addEventListener('keydown', function(e){ if(e.key==='Enter') sendLink(); });
+    setTimeout(function(){ email.focus(); }, 30);
+  }
+  async function sendLink(){
+    var email=((document.getElementById('acctEmail')||{}).value||'').trim();
+    if(!/.+@.+\..+/.test(email)){ fb('Entre une adresse e-mail valide.',false); return; }
+    var sb=window.fmSupabase(); if(!sb){ fb('Connexion au serveur impossible (réseau ?).',false); return; }
+    fb('Envoi…',true);
+    try{
+      var redirect=location.href.split('#')[0];
+      var res=await sb.auth.signInWithOtp({ email:email, options:{ emailRedirectTo:redirect } });
+      if(res.error){ fb('Erreur : '+res.error.message,false); return; }
+      titleEl.textContent="Vérifie tes e-mails";
+      bodyEl.innerHTML='<p>Un lien de connexion a été envoyé à <b>'+esc(email)+'</b>. Ouvre-le sur cet appareil pour te connecter.</p>'+
+        '<div class="acct-actions"><button class="tbtn accent" id="acctOk">Fermer</button></div>';
+      document.getElementById('acctOk').onclick=closeModal;
+    }catch(e){ fb('Échec : '+(e&&e.message||e),false); }
+  }
+
+  /* --- profil (pseudo) --- */
+  async function ensureProfil(user){
+    var sb=window.fmSupabase(); if(!sb) return null;
+    try{
+      var r=await sb.from('profils').select('id,pseudo,instrument').eq('id',user.id).maybeSingle();
+      if(r.error) return null;
+      return r.data; /* null si aucune ligne encore */
+    }catch(e){ return null; }
+  }
+  function showPseudoPrompt(user, existing){
+    titleEl.textContent="Ton pseudo";
+    var cur=(existing&&existing.pseudo)||'';
+    bodyEl.innerHTML=
+      '<p>Le nom affiché à côté des rythmes que tu partageras.</p>'+
+      '<input id="acctPseudo" type="text" maxlength="40" placeholder="ex. Naomi" value="'+esc(cur)+'">'+
+      '<div id="acctFb"></div>'+
+      '<div class="acct-actions">'+
+        '<button class="tbtn" id="acctSkip">Plus tard</button>'+
+        '<button class="tbtn accent" id="acctSavePseudo">Enregistrer</button>'+
+      '</div>';
+    var inp=document.getElementById('acctPseudo');
+    document.getElementById('acctSkip').onclick=closeModal;
+    document.getElementById('acctSavePseudo').onclick=function(){ savePseudo(user); };
+    inp.addEventListener('keydown', function(e){ if(e.key==='Enter') savePseudo(user); });
+    setTimeout(function(){ inp.focus(); if(inp.select) inp.select(); }, 30);
+  }
+  async function savePseudo(user){
+    var sb=window.fmSupabase(); if(!sb) return;
+    var pseudo=((document.getElementById('acctPseudo')||{}).value||'').trim();
+    if(!pseudo){ fb('Choisis un pseudo (ou « Plus tard »).',false); return; }
+    fb('Enregistrement…',true);
+    try{
+      var res=await sb.from('profils').upsert({ id:user.id, pseudo:pseudo }, { onConflict:'id' }).select().maybeSingle();
+      if(res.error){ fb('Erreur : '+res.error.message,false); return; }
+      currentProfil=res.data||{ id:user.id, pseudo:pseudo };
+      renderAccount(); closeModal();
+    }catch(e){ fb('Échec : '+(e&&e.message||e),false); }
+  }
+
+  /* --- écran : compte connecté --- */
+  function showAccount(){
+    var name=(currentProfil&&currentProfil.pseudo)||'';
+    var mail=(currentUser&&currentUser.email)||'';
+    titleEl.textContent="Ton compte";
+    bodyEl.innerHTML=
+      '<p>Connecté'+(name?' comme <b>'+esc(name)+'</b>':'')+
+        (mail?'<br><span style="color:var(--skin-faint);font-size:12px">'+esc(mail)+'</span>':'')+'</p>'+
+      '<div class="acct-actions" style="justify-content:space-between">'+
+        '<button class="tbtn" id="acctEditPseudo">'+(name?'Changer de pseudo':'Choisir un pseudo')+'</button>'+
+        '<button class="tbtn" id="acctLogout">Se déconnecter</button>'+
+      '</div>';
+    document.getElementById('acctEditPseudo').onclick=function(){ showPseudoPrompt(currentUser,currentProfil); };
+    document.getElementById('acctLogout').onclick=logout;
+  }
+  async function logout(){
+    var sb=window.fmSupabase(); if(sb){ try{ await sb.auth.signOut(); }catch(e){} }
+    currentUser=null; currentProfil=null; autoPrompted=false; renderAccount(); closeModal();
+  }
+
+  function renderAccount(){
+    if(!btn) return;
+    if(currentUser){
+      var name=(currentProfil&&currentProfil.pseudo)||currentUser.email||'Compte';
+      btn.textContent='👤 '+name; btn.title='Ton compte';
+    }else{
+      btn.textContent='Se connecter'; btn.title='Se connecter par lien magique';
+    }
+  }
+  if(btn){ btn.addEventListener('click', function(){ openModal(); if(currentUser) showAccount(); else showLogin(); }); }
+
+  /* --- init + suivi de session --- */
+  async function onSession(user){
+    currentUser=user||null;
+    if(currentUser){
+      if(!currentProfil) currentProfil=await ensureProfil(currentUser);
+      renderAccount();
+      if(!autoPrompted && (!currentProfil || !currentProfil.pseudo)){
+        autoPrompted=true; openModal(); showPseudoPrompt(currentUser, currentProfil);
+      }
+    }else{
+      currentProfil=null; renderAccount();
+    }
+  }
+  function init(){
+    var sb=window.fmSupabase();
+    if(!sb){ renderAccount(); return; } /* hors-ligne : l'app reste pleinement utilisable */
+    sb.auth.getSession().then(function(r){
+      var u=r&&r.data&&r.data.session&&r.data.session.user; onSession(u||null);
+    }).catch(function(){ renderAccount(); });
+    sb.auth.onAuthStateChange(function(evt, session){
+      var u=session&&session.user;
+      if(evt==='SIGNED_IN') onSession(u||null);
+      else if(evt==='SIGNED_OUT') onSession(null);
+    });
+  }
+  if(document.readyState!=='loading') init(); else document.addEventListener('DOMContentLoaded', init);
+})();
+</script>
+<!-- =================== FIN COMPTE (Supabase · lien magique) =================== -->
 
 </body>
 </html>
