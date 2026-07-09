@@ -427,6 +427,7 @@ nav.tabs .tico{display:none}
 </style>
 <script>/* Chargeur de thème du portail Formation Musicale : ?theme= -> localStorage['fm-theme'] */
 (function(){try{var q=new URLSearchParams(location.search),t=q.get('theme');if(t){localStorage.setItem('fm-theme',t);}else{t=localStorage.getItem('fm-theme');}if(t==='clair'||t==='sombre'){document.documentElement.setAttribute('data-fm-theme',t);}}catch(e){}})();</script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
 
@@ -653,7 +654,16 @@ nav.tabs .tico{display:none}
     <div class="rlist" id="repo"></div>
     <p class="hint" style="margin-top:9px">Le répertoire est conservé dans ce navigateur. Pour archiver ou partager avec la classe : <b>Exporter</b> (en haut) crée un fichier .json ; chacun le récupère via <b>Importer</b>.</p>
   </div>
-  <div class="card">
+    <div class="card">
+    <h3>Bibliothèque partagée <span class="hint" style="font-weight:400">· canon (traditionnel) · lecture</span></h3>
+    <div class="row" style="margin-top:4px">
+      <button class="btn" id="btnBiblioRefresh">Charger la bibliothèque</button>
+      <span class="qfb" id="biblioFb"></span>
+    </div>
+    <div id="biblioList" style="margin-top:8px"></div>
+    <p class="hint" style="margin-top:9px">Rythmes partagés (source Supabase). Publier tes propres rythmes viendra avec la connexion (lien magique).</p>
+  </div>
+<div class="card">
     <h3>Réglages du rythme courant</h3>
     <div class="row">
       <input type="text" id="editName" placeholder="Nom du rythme" style="flex:1;min-width:160px">
@@ -2540,5 +2550,44 @@ if(document.readyState==="loading") document.addEventListener("DOMContentLoaded"
 </script>
 <!-- =================== FIN WIZARD « Premiers pas » (v11) =================== -->
 
+<script>
+/* ===== Bibliothèque partagée (Supabase, lecture canon) ===== */
+(function(){
+  var SB_URL="https://hifqtzxhmboxbruraiab.supabase.co";
+  var SB_KEY="sb_publishable_HdA4ThMx_yDk7212nJ_sIg_J18wCNYK";
+  var _sb=null;
+  function sbClient(){ if(_sb) return _sb; if(!(window.supabase&&window.supabase.createClient)) return null; _sb=window.supabase.createClient(SB_URL,SB_KEY); return _sb; }
+  function fb(msg,ok){ var el=document.getElementById('biblioFb'); if(el){ el.textContent=msg; el.className="qfb "+(ok?"good":"badf"); } }
+  async function loadBiblio(){
+    var list=document.getElementById('biblioList'); if(!list) return;
+    var sb=sbClient(); if(!sb){ fb("Client Supabase indisponible (reseau ?).",false); return; }
+    fb("Chargement...",true);
+    try{
+      var res=await sb.from('md_morceaux').select('id,titre,json,updated_at').eq('canon',true).order('titre',{ascending:true});
+      if(res.error){ fb("Erreur : "+res.error.message,false); return; }
+      var data=res.data||[];
+      list.innerHTML="";
+      if(!data.length){ fb("Bibliotheque vide pour l'instant.",true); return; }
+      fb(data.length+" rythme(s) partage(s)",true);
+      data.forEach(function(row){
+        var r=document.createElement('div');
+        r.style.cssText="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid rgba(128,128,128,.2)";
+        var t=document.createElement('span'); t.textContent=(row.titre||"(sans titre)")+"  - Traditionnel";
+        var b=document.createElement('button'); b.className="btn"; b.textContent="Importer";
+        b.onclick=function(){
+          try{
+            var r2=(typeof tryImportText==='function')? tryImportText(JSON.stringify(row.json)) : {ok:false,msg:"import indisponible"};
+            fb(r2.msg, r2.ok);
+            if(r2.ok){ if(typeof save==='function')save(); if(typeof refreshAll==='function')refreshAll(); if(typeof tabTo==='function')tabTo('jouer'); }
+          }catch(e){ fb("Echec import : "+e.message,false); }
+        };
+        r.appendChild(t); r.appendChild(b); list.appendChild(r);
+      });
+    }catch(e){ fb("Echec : "+e.message,false); }
+  }
+  function wire(){ var btn=document.getElementById('btnBiblioRefresh'); if(btn && !btn._wired){ btn._wired=true; btn.addEventListener('click', loadBiblio); } }
+  if(document.readyState!=='loading') wire(); else document.addEventListener('DOMContentLoaded', wire);
+})();
+</script>
 </body>
 </html>
