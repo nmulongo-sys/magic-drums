@@ -427,6 +427,7 @@ nav.tabs .tico{display:none}
 </style>
 <script>/* Chargeur de thème du portail Formation Musicale : ?theme= -> localStorage['fm-theme'] */
 (function(){try{var q=new URLSearchParams(location.search),t=q.get('theme');if(t){localStorage.setItem('fm-theme',t);}else{t=localStorage.getItem('fm-theme');}if(t==='clair'||t==='sombre'){document.documentElement.setAttribute('data-fm-theme',t);}}catch(e){}})();</script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
 
@@ -462,6 +463,9 @@ nav.tabs .tico{display:none}
   </div>
   <div class="tgroup">
     <button class="tbtn helpm" id="btnHelpMode" aria-pressed="false" title="Mode aide : touchez un élément pour voir à quoi il sert">?</button>
+  </div>
+  <div class="tgroup" id="accountGroup">
+    <button class="tbtn" id="btnAccount" title="Se connecter par lien magique">Se connecter</button>
   </div>
 </div>
 
@@ -614,6 +618,13 @@ nav.tabs .tico{display:none}
       <label class="chk"><input type="checkbox" id="modeEns"> Mode ensemble</label>
       <label class="chk"><input type="checkbox" id="showBells" checked> Cloches</label>
       <label class="chk"><input type="checkbox" id="showMixer"> 🎚️ Volumes</label>
+      <span class="exp-audio" style="display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap">
+        <span class="pill">Export audio</span>
+        <select id="expDur" class="btn" title="Durée enregistrée de la boucle courante"><option value="10">10 s</option><option value="20">20 s</option><option value="30" selected>30 s</option><option value="60">60 s</option></select>
+        <button class="btn" id="btnExpWav">WAV</button>
+        <button class="btn" id="btnExpMp3">MP3</button>
+        <span class="qfb" id="expFb" style="min-height:0"></span>
+      </span>
     </div>
   </div>
 <div class="mixer-panel" id="mixerPanel"></div>
@@ -653,7 +664,17 @@ nav.tabs .tico{display:none}
     <div class="rlist" id="repo"></div>
     <p class="hint" style="margin-top:9px">Le répertoire est conservé dans ce navigateur. Pour archiver ou partager avec la classe : <b>Exporter</b> (en haut) crée un fichier .json ; chacun le récupère via <b>Importer</b>.</p>
   </div>
-  <div class="card">
+  <div class="card" id="biblioCard">
+    <h3>Bibliothèque partagée <span class="hint" style="font-weight:400">· canon &amp; classe · Supabase</span></h3>
+    <div class="row" style="margin-top:4px;gap:8px;flex-wrap:wrap">
+      <button class="btn" id="btnBiblioRefresh">Charger la bibliothèque</button>
+      <button class="btn primary" id="btnBiblioPublish" title="Publier le rythme affiché dans la bibliothèque de la classe">Publier le rythme courant</button>
+      <span class="qfb" id="biblioFb" style="min-height:0"></span>
+    </div>
+    <div id="biblioList" style="margin-top:8px"></div>
+    <p class="hint" style="margin-top:9px">Le <b>canon</b> (traditionnel) est visible sans connexion. <b>Connecte-toi</b> (en haut) pour voir les rythmes de la classe et publier les tiens.</p>
+  </div>
+  <div class="card">
     <h3>Réglages du rythme courant</h3>
     <div class="row">
       <input type="text" id="editName" placeholder="Nom du rythme" style="flex:1;min-width:160px">
@@ -2539,6 +2560,350 @@ if(document.readyState==="loading") document.addEventListener("DOMContentLoaded"
 })();
 </script>
 <!-- =================== FIN WIZARD « Premiers pas » (v11) =================== -->
+
+<!-- ===================== COMPTE (Supabase · lien magique) ===================== -->
+<style id="acctCss">
+  #acctDim{position:fixed;inset:0;background:rgba(8,6,4,.62);z-index:9500;display:none}
+  #acctDim.show{display:block}
+  #acctCard{position:fixed;z-index:9502;left:50%;top:50%;transform:translate(-50%,-50%);
+    width:min(92vw,380px);background:var(--wood-2);border:1px solid var(--line-2);border-radius:16px;
+    padding:20px 20px 16px;box-shadow:0 18px 50px rgba(0,0,0,.5);color:var(--skin)}
+  #acctCard h3{margin:0 0 6px;font:700 18px Fraunces,serif;color:var(--skin)}
+  #acctCard p{margin:0 0 12px;color:var(--skin-dim);font:400 13px/1.45 Inter}
+  #acctCard input{width:100%;padding:11px 12px;border-radius:10px;border:1px solid var(--line-2);
+    background:var(--wood-1);color:var(--skin);font:500 15px Inter;margin-bottom:10px}
+  #acctCard input:focus-visible{outline:2px solid var(--brass);outline-offset:1px}
+  #acctCard .acct-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:6px;flex-wrap:wrap}
+  #acctFb{min-height:20px;font:600 13px Inter;margin:2px 0 4px}
+  #acctFb.good{color:var(--ok)} #acctFb.bad{color:var(--bad)}
+</style>
+<div id="acctDim" aria-hidden="true"></div>
+<div id="acctCard" role="dialog" aria-modal="true" aria-labelledby="acctTitle" style="display:none">
+  <h3 id="acctTitle">Se connecter</h3>
+  <div id="acctBody"></div>
+</div>
+<script>
+/* ===== Compte utilisateur : connexion par lien magique + profil (pseudo) ===== */
+(function(){
+  var SB_URL="https://hifqtzxhmboxbruraiab.supabase.co";
+  var SB_KEY="sb_publishable_HdA4ThMx_yDk7212nJ_sIg_J18wCNYK";
+  /* Client Supabase partagé (réutilisable par la future bibliothèque) */
+  window.fmSupabase=function(){
+    if(window._fmSb) return window._fmSb;
+    if(!(window.supabase&&window.supabase.createClient)) return null;
+    window._fmSb=window.supabase.createClient(SB_URL,SB_KEY);
+    return window._fmSb;
+  };
+
+  var dim=document.getElementById('acctDim');
+  var card=document.getElementById('acctCard');
+  var titleEl=document.getElementById('acctTitle');
+  var bodyEl=document.getElementById('acctBody');
+  var btn=document.getElementById('btnAccount');
+  var currentUser=null, currentProfil=null, autoPrompted=false;
+
+  function openModal(){ dim.classList.add('show'); card.style.display='block'; }
+  function closeModal(){ dim.classList.remove('show'); card.style.display='none'; bodyEl.innerHTML=''; }
+  dim.addEventListener('click', closeModal);
+  document.addEventListener('keydown', function(e){ if(e.key==='Escape' && card.style.display==='block') closeModal(); });
+  function esc(s){ var d=document.createElement('div'); d.textContent=(s==null?'':String(s)); return d.innerHTML; }
+  function fb(msg,ok){ var el=document.getElementById('acctFb'); if(el){ el.textContent=msg; el.className=(ok?'good':'bad'); } }
+
+  /* --- écran : saisie e-mail, envoi du lien magique --- */
+  function showLogin(){
+    titleEl.textContent="Se connecter";
+    bodyEl.innerHTML=
+      '<p>Reçois un lien magique par e-mail — aucun mot de passe à retenir.</p>'+
+      '<input id="acctEmail" type="email" inputmode="email" autocomplete="email" placeholder="ton@email.fr">'+
+      '<div id="acctFb"></div>'+
+      '<div class="acct-actions">'+
+        '<button class="tbtn" id="acctCancel">Annuler</button>'+
+        '<button class="tbtn accent" id="acctSend">Envoyer le lien</button>'+
+      '</div>';
+    var email=document.getElementById('acctEmail');
+    document.getElementById('acctCancel').onclick=closeModal;
+    document.getElementById('acctSend').onclick=sendLink;
+    email.addEventListener('keydown', function(e){ if(e.key==='Enter') sendLink(); });
+    setTimeout(function(){ email.focus(); }, 30);
+  }
+  async function sendLink(){
+    var email=((document.getElementById('acctEmail')||{}).value||'').trim();
+    if(!/.+@.+\..+/.test(email)){ fb('Entre une adresse e-mail valide.',false); return; }
+    var sb=window.fmSupabase(); if(!sb){ fb('Connexion au serveur impossible (réseau ?).',false); return; }
+    fb('Envoi…',true);
+    try{
+      var redirect=location.href.split('#')[0];
+      var res=await sb.auth.signInWithOtp({ email:email, options:{ emailRedirectTo:redirect } });
+      if(res.error){ fb('Erreur : '+res.error.message,false); return; }
+      titleEl.textContent="Vérifie tes e-mails";
+      bodyEl.innerHTML='<p>Un lien de connexion a été envoyé à <b>'+esc(email)+'</b>. Ouvre-le sur cet appareil pour te connecter.</p>'+
+        '<div class="acct-actions"><button class="tbtn accent" id="acctOk">Fermer</button></div>';
+      document.getElementById('acctOk').onclick=closeModal;
+    }catch(e){ fb('Échec : '+(e&&e.message||e),false); }
+  }
+
+  /* --- profil (pseudo) --- */
+  async function ensureProfil(user){
+    var sb=window.fmSupabase(); if(!sb) return null;
+    try{
+      var r=await sb.from('profils').select('id,pseudo,instrument').eq('id',user.id).maybeSingle();
+      if(r.error) return null;
+      return r.data; /* null si aucune ligne encore */
+    }catch(e){ return null; }
+  }
+  function showPseudoPrompt(user, existing){
+    titleEl.textContent="Ton pseudo";
+    var cur=(existing&&existing.pseudo)||'';
+    bodyEl.innerHTML=
+      '<p>Le nom affiché à côté des rythmes que tu partageras.</p>'+
+      '<input id="acctPseudo" type="text" maxlength="40" placeholder="ex. Naomi" value="'+esc(cur)+'">'+
+      '<div id="acctFb"></div>'+
+      '<div class="acct-actions">'+
+        '<button class="tbtn" id="acctSkip">Plus tard</button>'+
+        '<button class="tbtn accent" id="acctSavePseudo">Enregistrer</button>'+
+      '</div>';
+    var inp=document.getElementById('acctPseudo');
+    document.getElementById('acctSkip').onclick=closeModal;
+    document.getElementById('acctSavePseudo').onclick=function(){ savePseudo(user); };
+    inp.addEventListener('keydown', function(e){ if(e.key==='Enter') savePseudo(user); });
+    setTimeout(function(){ inp.focus(); if(inp.select) inp.select(); }, 30);
+  }
+  async function savePseudo(user){
+    var sb=window.fmSupabase(); if(!sb) return;
+    var pseudo=((document.getElementById('acctPseudo')||{}).value||'').trim();
+    if(!pseudo){ fb('Choisis un pseudo (ou « Plus tard »).',false); return; }
+    fb('Enregistrement…',true);
+    try{
+      var res=await sb.from('profils').upsert({ id:user.id, pseudo:pseudo }, { onConflict:'id' }).select().maybeSingle();
+      if(res.error){ fb('Erreur : '+res.error.message,false); return; }
+      currentProfil=res.data||{ id:user.id, pseudo:pseudo };
+      renderAccount(); closeModal();
+    }catch(e){ fb('Échec : '+(e&&e.message||e),false); }
+  }
+
+  /* --- écran : compte connecté --- */
+  function showAccount(){
+    var name=(currentProfil&&currentProfil.pseudo)||'';
+    var mail=(currentUser&&currentUser.email)||'';
+    titleEl.textContent="Ton compte";
+    bodyEl.innerHTML=
+      '<p>Connecté'+(name?' comme <b>'+esc(name)+'</b>':'')+
+        (mail?'<br><span style="color:var(--skin-faint);font-size:12px">'+esc(mail)+'</span>':'')+'</p>'+
+      '<div class="acct-actions" style="justify-content:space-between">'+
+        '<button class="tbtn" id="acctEditPseudo">'+(name?'Changer de pseudo':'Choisir un pseudo')+'</button>'+
+        '<button class="tbtn" id="acctLogout">Se déconnecter</button>'+
+      '</div>';
+    document.getElementById('acctEditPseudo').onclick=function(){ showPseudoPrompt(currentUser,currentProfil); };
+    document.getElementById('acctLogout').onclick=logout;
+  }
+  async function logout(){
+    var sb=window.fmSupabase(); if(sb){ try{ await sb.auth.signOut(); }catch(e){} }
+    currentUser=null; currentProfil=null; autoPrompted=false; renderAccount(); closeModal();
+  }
+
+  function renderAccount(){
+    /* état exposé + événement pour les autres modules (bibliothèque) */
+    window.fmCurrentUser=currentUser; window.fmCurrentProfil=currentProfil;
+    try{ document.dispatchEvent(new CustomEvent('fm-auth',{detail:{user:currentUser,profil:currentProfil}})); }catch(e){}
+    if(!btn) return;
+    if(currentUser){
+      var name=(currentProfil&&currentProfil.pseudo)||currentUser.email||'Compte';
+      btn.textContent='👤 '+name; btn.title='Ton compte';
+    }else{
+      btn.textContent='Se connecter'; btn.title='Se connecter par lien magique';
+    }
+  }
+  if(btn){ btn.addEventListener('click', function(){ openModal(); if(currentUser) showAccount(); else showLogin(); }); }
+
+  /* --- init + suivi de session --- */
+  async function onSession(user){
+    currentUser=user||null;
+    if(currentUser){
+      if(!currentProfil) currentProfil=await ensureProfil(currentUser);
+      renderAccount();
+      if(!autoPrompted && (!currentProfil || !currentProfil.pseudo)){
+        autoPrompted=true; openModal(); showPseudoPrompt(currentUser, currentProfil);
+      }
+    }else{
+      currentProfil=null; renderAccount();
+    }
+  }
+  function init(){
+    var sb=window.fmSupabase();
+    if(!sb){ renderAccount(); return; } /* hors-ligne : l'app reste pleinement utilisable */
+    sb.auth.getSession().then(function(r){
+      var u=r&&r.data&&r.data.session&&r.data.session.user; onSession(u||null);
+    }).catch(function(){ renderAccount(); });
+    sb.auth.onAuthStateChange(function(evt, session){
+      var u=session&&session.user;
+      if(evt==='SIGNED_IN') onSession(u||null);
+      else if(evt==='SIGNED_OUT') onSession(null);
+    });
+  }
+  if(document.readyState!=='loading') init(); else document.addEventListener('DOMContentLoaded', init);
+})();
+</script>
+<script>
+/* ===== Bibliothèque partagée (Supabase) : lecture canon/classe + publication ===== */
+(function(){
+  function el(id){ return document.getElementById(id); }
+  function esc(s){ var d=document.createElement('div'); d.textContent=(s==null?'':String(s)); return d.innerHTML; }
+  function fb(msg,ok){ var e=el('biblioFb'); if(e){ e.textContent=msg||''; e.className='qfb '+(ok?'good':'badf'); } }
+  function sb(){ return (window.fmSupabase&&window.fmSupabase())||null; }
+  function user(){ return window.fmCurrentUser||null; }
+
+  function tagFor(row){
+    if(row.canon) return 'Traditionnel';
+    var u=user();
+    if(u && row.owner===u.id) return 'Moi';
+    if(row.partage_classe) return 'Classe';
+    return '';
+  }
+  async function loadBiblio(){
+    var list=el('biblioList'); if(!list) return;
+    var c=sb(); if(!c){ fb('Client Supabase indisponible (réseau ?).',false); return; }
+    fb('Chargement…',true);
+    try{
+      var res=await c.from('md_morceaux')
+        .select('id,titre,json,owner,canon,partage_classe,updated_at')
+        .order('canon',{ascending:false}).order('titre',{ascending:true});
+      if(res.error){ fb('Erreur : '+res.error.message,false); return; }
+      var data=res.data||[]; list.innerHTML='';
+      if(!data.length){ fb(user()?'Bibliothèque vide pour l\'instant.':'Aucun rythme traditionnel pour l\'instant.',true); return; }
+      fb(data.length+' rythme(s)'+(user()?'':' · connecte-toi pour voir la classe'),true);
+      data.forEach(function(row){
+        var r=document.createElement('div');
+        r.style.cssText='display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid rgba(128,128,128,.2)';
+        var left=document.createElement('span');
+        var tag=tagFor(row);
+        left.innerHTML='<b>'+esc(row.titre||'(sans titre)')+'</b>'+(tag?' <span class="hint" style="font-weight:400">· '+tag+'</span>':'');
+        var b=document.createElement('button'); b.className='btn'; b.textContent='Importer';
+        b.onclick=function(){
+          try{
+            var out=(typeof tryImportText==='function')?tryImportText(JSON.stringify(row.json)):{ok:false,msg:'import indisponible'};
+            fb(out.msg,out.ok);
+          }catch(e){ fb('Échec import : '+e.message,false); }
+        };
+        r.appendChild(left); r.appendChild(b); list.appendChild(r);
+      });
+    }catch(e){ fb('Échec : '+(e&&e.message||e),false); }
+  }
+
+  async function publish(){
+    var c=sb(); if(!c){ fb('Client Supabase indisponible (réseau ?).',false); return; }
+    var u=user(); if(!u){ fb('Connecte-toi (en haut) pour publier tes rythmes.',false); return; }
+    if(typeof current!=='function'){ fb('Rythme courant introuvable.',false); return; }
+    var r=current(); if(!r){ fb('Aucun rythme à publier.',false); return; }
+    var body=(typeof deep==='function')?deep(r):JSON.parse(JSON.stringify(r));
+    try{ delete body._checked; }catch(e){}
+    var titre=(r.name||'Sans titre').slice(0,120);
+    fb('Publication…',true);
+    try{
+      var res=await c.from('md_morceaux')
+        .insert({ owner:u.id, titre:titre, json:body, partage_classe:true, canon:false })
+        .select().maybeSingle();
+      if(res.error){ fb('Erreur : '+res.error.message,false); return; }
+      fb('« '+titre+' » publié dans la classe ✓',true);
+      loadBiblio();
+    }catch(e){ fb('Échec : '+(e&&e.message||e),false); }
+  }
+
+  function updatePublishBtn(){
+    var pb=el('btnBiblioPublish'); if(!pb) return;
+    pb.title=user()?'Publier le rythme affiché dans la bibliothèque de la classe':'Connecte-toi (en haut) pour publier';
+  }
+  function wire(){
+    var rb=el('btnBiblioRefresh'); if(rb&&!rb._wired){ rb._wired=true; rb.addEventListener('click',loadBiblio); }
+    var pb=el('btnBiblioPublish'); if(pb&&!pb._wired){ pb._wired=true; pb.addEventListener('click',publish); }
+    updatePublishBtn();
+  }
+  document.addEventListener('fm-auth', updatePublishBtn);
+  if(document.readyState!=='loading') wire(); else document.addEventListener('DOMContentLoaded', wire);
+})();
+</script>
+<!-- =================== FIN COMPTE (Supabase · lien magique) =================== -->
+
+<!-- ===================== EXPORT AUDIO (WAV hors-ligne · MP3 via encodeur) ===================== -->
+<script>
+/* ===== Export audio : capte la sortie master en temps réel puis encode WAV/MP3 ===== */
+(function(){
+  function el(id){ return document.getElementById(id); }
+  function fb(m,ok){ var e=el('expFb'); if(e){ e.textContent=m||''; e.className='qfb '+(ok?'good':'badf'); } }
+  var busy=false;
+
+  function baseName(){ try{ var r=(typeof current==='function')?current():null; var n=(r&&r.name)?r.name:'rythme'; return (n.replace(/[^\w\-]+/g,'_').slice(0,60))||'rythme'; }catch(e){ return 'rythme'; } }
+  function dl(blob, ext){ var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=baseName()+'.'+ext; document.body.appendChild(a); a.click(); a.remove(); setTimeout(function(){ URL.revokeObjectURL(a.href); },1500); }
+
+  function floatTo16(f){ var n=f.length, o=new Int16Array(n); for(var i=0;i<n;i++){ var s=f[i]<-1?-1:(f[i]>1?1:f[i]); o[i]=s<0?s*0x8000:s*0x7FFF; } return o; }
+  function encodeWAV(f, sr){
+    var i16=floatTo16(f), n=i16.length;
+    var buf=new ArrayBuffer(44+n*2), v=new DataView(buf);
+    function ws(o,s){ for(var i=0;i<s.length;i++) v.setUint8(o+i, s.charCodeAt(i)); }
+    ws(0,'RIFF'); v.setUint32(4,36+n*2,true); ws(8,'WAVE'); ws(12,'fmt ');
+    v.setUint32(16,16,true); v.setUint16(20,1,true); v.setUint16(22,1,true);
+    v.setUint32(24,sr,true); v.setUint32(28,sr*2,true); v.setUint16(32,2,true); v.setUint16(34,16,true);
+    ws(36,'data'); v.setUint32(40,n*2,true);
+    var off=44; for(var i=0;i<n;i++){ v.setInt16(off,i16[i],true); off+=2; }
+    return new Blob([buf],{type:'audio/wav'});
+  }
+  function loadLame(cb){
+    if(window.lamejs) return cb(window.lamejs);
+    var s=document.createElement('script');
+    s.src='https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js';
+    s.onload=function(){ cb(window.lamejs||null); };
+    s.onerror=function(){ cb(null); };
+    document.head.appendChild(s);
+  }
+  function finish(data, sr, format){
+    if(!data.length){ fb('Rien à exporter (aucun son capté).',false); busy=false; return; }
+    if(format==='wav'){ dl(encodeWAV(data,sr),'wav'); fb('WAV exporté ✓',true); busy=false; return; }
+    fb('Encodage MP3…',true);
+    loadLame(function(L){
+      if(!L||!L.Mp3Encoder){ fb('MP3 indisponible (hors-ligne ?) — WAV exporté à la place.',false); dl(encodeWAV(data,sr),'wav'); busy=false; return; }
+      try{
+        var enc=new L.Mp3Encoder(1, sr, 128), i16=floatTo16(data), out=[], block=1152;
+        for(var i=0;i<i16.length;i+=block){ var b=enc.encodeBuffer(i16.subarray(i,i+block)); if(b.length)out.push(b); }
+        var end=enc.flush(); if(end.length)out.push(end);
+        dl(new Blob(out,{type:'audio/mpeg'}),'mp3'); fb('MP3 exporté ✓',true);
+      }catch(e){ fb('Échec MP3 : '+(e&&e.message||e),false); }
+      busy=false;
+    });
+  }
+
+  function run(seconds, format){
+    if(busy){ return; }
+    if(typeof audio!=='function'){ fb('Moteur audio indisponible.',false); return; }
+    var c; try{ c=audio(); }catch(e){ c=null; }
+    if(!c || typeof master==='undefined' || !master){ fb('Moteur audio indisponible.',false); return; }
+    busy=true;
+    var startedByUs=false, sr=c.sampleRate, chunks=[], total=0;
+    var sp=c.createScriptProcessor(4096,1,1), sink=c.createGain(); sink.gain.value=0;
+    sp.onaudioprocess=function(e){ var d=e.inputBuffer.getChannelData(0); chunks.push(new Float32Array(d)); total+=d.length; };
+    try{ master.connect(sp); }catch(e){}
+    sp.connect(sink); sink.connect(c.destination);
+    try{ if(!state.playing && typeof start==='function'){ start(); startedByUs=true; } }catch(e){}
+    fb('Enregistrement… ('+seconds+' s)',true);
+    setTimeout(function(){
+      try{ master.disconnect(sp); }catch(e){}
+      try{ sp.disconnect(); }catch(e){}
+      try{ sink.disconnect(); }catch(e){}
+      sp.onaudioprocess=null;
+      if(startedByUs){ try{ if(typeof stop==='function') stop(); }catch(e){} }
+      var data=new Float32Array(total), off=0;
+      chunks.forEach(function(ch){ data.set(ch,off); off+=ch.length; });
+      finish(data, sr, format);
+    }, seconds*1000 + 150);
+  }
+
+  function wire(){
+    var w=el('btnExpWav'), m=el('btnExpMp3'), d=el('expDur');
+    if(w&&!w._wired){ w._wired=true; w.addEventListener('click', function(){ run(+((d&&d.value)||30),'wav'); }); }
+    if(m&&!m._wired){ m._wired=true; m.addEventListener('click', function(){ run(+((d&&d.value)||30),'mp3'); }); }
+  }
+  if(document.readyState!=='loading') wire(); else document.addEventListener('DOMContentLoaded', wire);
+})();
+</script>
+<!-- =================== FIN EXPORT AUDIO =================== -->
 
 </body>
 </html>
