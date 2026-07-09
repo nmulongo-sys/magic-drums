@@ -657,7 +657,17 @@ nav.tabs .tico{display:none}
     <div class="rlist" id="repo"></div>
     <p class="hint" style="margin-top:9px">Le répertoire est conservé dans ce navigateur. Pour archiver ou partager avec la classe : <b>Exporter</b> (en haut) crée un fichier .json ; chacun le récupère via <b>Importer</b>.</p>
   </div>
-  <div class="card">
+  <div class="card" id="biblioCard">
+    <h3>Bibliothèque partagée <span class="hint" style="font-weight:400">· canon &amp; classe · Supabase</span></h3>
+    <div class="row" style="margin-top:4px;gap:8px;flex-wrap:wrap">
+      <button class="btn" id="btnBiblioRefresh">Charger la bibliothèque</button>
+      <button class="btn primary" id="btnBiblioPublish" title="Publier le rythme affiché dans la bibliothèque de la classe">Publier le rythme courant</button>
+      <span class="qfb" id="biblioFb" style="min-height:0"></span>
+    </div>
+    <div id="biblioList" style="margin-top:8px"></div>
+    <p class="hint" style="margin-top:9px">Le <b>canon</b> (traditionnel) est visible sans connexion. <b>Connecte-toi</b> (en haut) pour voir les rythmes de la classe et publier les tiens.</p>
+  </div>
+  <div class="card">
     <h3>Réglages du rythme courant</h3>
     <div class="row">
       <input type="text" id="editName" placeholder="Nom du rythme" style="flex:1;min-width:160px">
@@ -2685,6 +2695,9 @@ if(document.readyState==="loading") document.addEventListener("DOMContentLoaded"
   }
 
   function renderAccount(){
+    /* état exposé + événement pour les autres modules (bibliothèque) */
+    window.fmCurrentUser=currentUser; window.fmCurrentProfil=currentProfil;
+    try{ document.dispatchEvent(new CustomEvent('fm-auth',{detail:{user:currentUser,profil:currentProfil}})); }catch(e){}
     if(!btn) return;
     if(currentUser){
       var name=(currentProfil&&currentProfil.pseudo)||currentUser.email||'Compte';
@@ -2721,6 +2734,84 @@ if(document.readyState==="loading") document.addEventListener("DOMContentLoaded"
     });
   }
   if(document.readyState!=='loading') init(); else document.addEventListener('DOMContentLoaded', init);
+})();
+</script>
+<script>
+/* ===== Bibliothèque partagée (Supabase) : lecture canon/classe + publication ===== */
+(function(){
+  function el(id){ return document.getElementById(id); }
+  function esc(s){ var d=document.createElement('div'); d.textContent=(s==null?'':String(s)); return d.innerHTML; }
+  function fb(msg,ok){ var e=el('biblioFb'); if(e){ e.textContent=msg||''; e.className='qfb '+(ok?'good':'badf'); } }
+  function sb(){ return (window.fmSupabase&&window.fmSupabase())||null; }
+  function user(){ return window.fmCurrentUser||null; }
+
+  function tagFor(row){
+    if(row.canon) return 'Traditionnel';
+    var u=user();
+    if(u && row.owner===u.id) return 'Moi';
+    if(row.partage_classe) return 'Classe';
+    return '';
+  }
+  async function loadBiblio(){
+    var list=el('biblioList'); if(!list) return;
+    var c=sb(); if(!c){ fb('Client Supabase indisponible (réseau ?).',false); return; }
+    fb('Chargement…',true);
+    try{
+      var res=await c.from('md_morceaux')
+        .select('id,titre,json,owner,canon,partage_classe,updated_at')
+        .order('canon',{ascending:false}).order('titre',{ascending:true});
+      if(res.error){ fb('Erreur : '+res.error.message,false); return; }
+      var data=res.data||[]; list.innerHTML='';
+      if(!data.length){ fb(user()?'Bibliothèque vide pour l\'instant.':'Aucun rythme traditionnel pour l\'instant.',true); return; }
+      fb(data.length+' rythme(s)'+(user()?'':' · connecte-toi pour voir la classe'),true);
+      data.forEach(function(row){
+        var r=document.createElement('div');
+        r.style.cssText='display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid rgba(128,128,128,.2)';
+        var left=document.createElement('span');
+        var tag=tagFor(row);
+        left.innerHTML='<b>'+esc(row.titre||'(sans titre)')+'</b>'+(tag?' <span class="hint" style="font-weight:400">· '+tag+'</span>':'');
+        var b=document.createElement('button'); b.className='btn'; b.textContent='Importer';
+        b.onclick=function(){
+          try{
+            var out=(typeof tryImportText==='function')?tryImportText(JSON.stringify(row.json)):{ok:false,msg:'import indisponible'};
+            fb(out.msg,out.ok);
+          }catch(e){ fb('Échec import : '+e.message,false); }
+        };
+        r.appendChild(left); r.appendChild(b); list.appendChild(r);
+      });
+    }catch(e){ fb('Échec : '+(e&&e.message||e),false); }
+  }
+
+  async function publish(){
+    var c=sb(); if(!c){ fb('Client Supabase indisponible (réseau ?).',false); return; }
+    var u=user(); if(!u){ fb('Connecte-toi (en haut) pour publier tes rythmes.',false); return; }
+    if(typeof current!=='function'){ fb('Rythme courant introuvable.',false); return; }
+    var r=current(); if(!r){ fb('Aucun rythme à publier.',false); return; }
+    var body=(typeof deep==='function')?deep(r):JSON.parse(JSON.stringify(r));
+    try{ delete body._checked; }catch(e){}
+    var titre=(r.name||'Sans titre').slice(0,120);
+    fb('Publication…',true);
+    try{
+      var res=await c.from('md_morceaux')
+        .insert({ owner:u.id, titre:titre, json:body, partage_classe:true, canon:false })
+        .select().maybeSingle();
+      if(res.error){ fb('Erreur : '+res.error.message,false); return; }
+      fb('« '+titre+' » publié dans la classe ✓',true);
+      loadBiblio();
+    }catch(e){ fb('Échec : '+(e&&e.message||e),false); }
+  }
+
+  function updatePublishBtn(){
+    var pb=el('btnBiblioPublish'); if(!pb) return;
+    pb.title=user()?'Publier le rythme affiché dans la bibliothèque de la classe':'Connecte-toi (en haut) pour publier';
+  }
+  function wire(){
+    var rb=el('btnBiblioRefresh'); if(rb&&!rb._wired){ rb._wired=true; rb.addEventListener('click',loadBiblio); }
+    var pb=el('btnBiblioPublish'); if(pb&&!pb._wired){ pb._wired=true; pb.addEventListener('click',publish); }
+    updatePublishBtn();
+  }
+  document.addEventListener('fm-auth', updatePublishBtn);
+  if(document.readyState!=='loading') wire(); else document.addEventListener('DOMContentLoaded', wire);
 })();
 </script>
 <!-- =================== FIN COMPTE (Supabase · lien magique) =================== -->
