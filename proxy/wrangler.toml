@@ -1,0 +1,24 @@
+# Configuration Cloudflare Worker pour gemini-proxy.
+# Déploiement : voir proxy/README.md.
+#
+# La clé Gemini n'est PAS ici (ce fichier est commité). Elle se pose en secret :
+#   wrangler secret put GEMINI_API_KEY
+
+name = "gemini-proxy"
+main = "worker.js"
+compatibility_date = "2025-01-01"
+
+[vars]
+# Modèle Gemini — pointe sur un modèle du TIER GRATUIT (famille Flash / Flash-Lite).
+# Les modèles Pro sont payants depuis avril 2026. Vérifie la liste à jour :
+#   https://ai.google.dev/gemini-api/docs/pricing
+# Alternative à plus haut quota gratuit : "gemini-2.5-flash-lite".
+GEMINI_MODEL = "gemini-2.5-flash"
+
+# Origines autorisées (protège le quota partagé). Les apps sont servies ici :
+ALLOWED_ORIGIN = "https://nmulongo-sys.github.io"
+# Plusieurs origines : séparer par des virgules. "*" = tout autoriser (tests).
+
+# Garde-fous
+MAX_PROMPT = "8000"
+MAX_TOKENS = "2048"
