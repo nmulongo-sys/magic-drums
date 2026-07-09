@@ -777,7 +777,8 @@ nav.tabs .tico{display:none}
       <span class="qfb" id="iaFb"></span>
     </div>
   </div>
-  <details class="card" id="iaSettings">
+  <div id="iaStatus" role="status" aria-live="polite" style="display:none;margin:10px 0;padding:10px 12px;border-radius:8px;font-size:13.5px;line-height:1.35"></div>
+  <details class="card" id="iaSettings">
     <summary style="cursor:pointer;font-weight:600">Réglages IA</summary>
     <p class="hint" style="margin-top:8px">Proxy IA (Cloudflare Worker qui cache la clé Gemini) <b>déjà configuré</b> — rien à faire. Ce champ ne sert qu'à pointer un autre proxy ; il est mémorisé dans ce navigateur. Détails : <span class="mono">proxy/README.md</span>.</p>
     <input id="iaProxyUrl" type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://gemini-proxy.votre-sous-domaine.workers.dev" style="width:100%;font-family:ui-monospace,monospace;font-size:12.5px">
@@ -786,7 +787,7 @@ nav.tabs .tico{display:none}
       <span class="qfb" id="iaCfgFb"></span>
     </div>
   </details>
-  <div class="card"><p class="hint mono" id="promptPreview" style="white-space:pre-wrap;font-size:11.5px"></p></div>
+  <details class="card"><summary style="cursor:pointer;font-weight:600">Voir le prompt envoyé à l'IA (avancé)</summary><p class="hint mono" id="promptPreview" style="white-space:pre-wrap;font-size:11.5px;margin-top:8px"></p></details>
 </section>
 
 <!-- ============ QUIZ ============ -->
@@ -1513,13 +1514,23 @@ function extractJson(text){
   if(i>=0 && j>i) s=s.slice(i,j+1);
   return JSON.parse(s);
 }
+function setIaStatus(msg,kind){
+  const el=document.getElementById("iaStatus");
+  if(!el) return;
+  if(!msg){ el.style.display="none"; el.textContent=""; return; }
+  el.textContent=msg; el.style.display="block";
+  const c = kind==="good" ? ["#12331d","#a6f0bd","#2f8a4d"]
+          : kind==="bad"  ? ["#3a1414","#ffb3b3","#8a2f2f"]
+          : ["#2c2a16","#ecdd93","#8a7a2f"];
+  el.style.background=c[0]; el.style.color=c[1]; el.style.border="1px solid "+c[2];
+}
 async function generateRhythm(){
   const url=getProxyUrl();
-  if(!url){ toast("iaFb","Configurez d'abord l'URL du proxy dans « Réglages IA ».",false); const s=document.getElementById("iaSettings"); if(s) s.open=true; return; }
+  if(!url){ setIaStatus("⚙️ Configurez d'abord l'URL du proxy dans « Réglages IA ».","bad"); const s=document.getElementById("iaSettings"); if(s) s.open=true; return; }
   const btn=document.getElementById("btnGenRhythm");
   const oldLabel=btn?btn.textContent:"";
   if(btn){ btn.disabled=true; btn.textContent="⏳ Génération…"; }
-  toast("iaFb","Génération en cours…",true);
+  setIaStatus("⏳ Génération en cours… (quelques secondes)","");
   try{
     const resp=await fetch(url,{ method:"POST", headers:{"Content-Type":"application/json"},
       body:JSON.stringify({ prompt:buildPrompt(), json:true, temperature:0.95 }) });
@@ -1528,10 +1539,11 @@ async function generateRhythm(){
     if(!data.text){ throw new Error("Réponse vide du proxy."); }
     const obj=extractJson(data.text);
     const n=importParsed(obj);
-    toast("iaFb",n+" rythme(s) généré(s) ✓",true);
-    tabTo("jouer");
+    const nm=(obj&&obj.name)?obj.name:"Nouveau rythme";
+    setIaStatus("✅ « "+nm+" » ajouté au répertoire — ouverture de l'onglet Jouer…","good");
+    setTimeout(()=>tabTo("jouer"), 1200);
   }catch(e){
-    toast("iaFb","Échec : "+e.message,false);
+    setIaStatus("❌ Échec : "+e.message+" — recliquez sur ✨ Générer le rythme.","bad");
   }finally{
     if(btn){ btn.disabled=false; btn.textContent=oldLabel; }
   }
