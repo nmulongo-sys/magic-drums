@@ -628,7 +628,10 @@ function grooveStats(){
   return {nB,nS,ng};
 }
 function buildSteps(){
-  const st=grooveStats(), tgt=P.tempo, nbT=groove.measures.length*4;
+  /* v1.5 : le parcours s'ancre sur le tempo CIBLE du groove (bpmCible), pas sur la
+     vitesse courante du curseur — sinon « 80 % » dérivait avec la vitesse de travail. */
+  if(groove.bpmCible==null) groove.bpmCible=+groove.bpm||P.tempo;
+  const st=grooveStats(), tgt=+groove.bpmCible, nbT=groove.measures.length*4;
   const slow=Math.max(50,Math.round(tgt*0.62)), mid=Math.round(tgt*0.8);
   const steps=[];
   steps.push({t:"Écoute",d:"Écouter le groove complet au tempo cible ("+tgt+" bpm) pour l'avoir dans l'oreille.",
@@ -714,7 +717,7 @@ function bindControls(){
   byId("btnPlay").onclick=()=>{ playing?stopPlay():startPlay(); };
   byId("btnAddM").onclick=()=>{ if(groove.measures.length<4){ groove.measures.push(emptyMeasure()); P.loopB=totalSteps()/4-1; persist(); renderGrid(); renderSteps(); } };
   byId("btnDelM").onclick=()=>{ if(groove.measures.length>1){ groove.measures.pop(); P.loopA=0; P.loopB=totalSteps()/4-1; persist(); renderGrid(); renderSteps(); } };
-  byId("btnDemo").onclick=()=>{ pushUndo(); groove=JSON.parse(JSON.stringify(DEMO)); P.loopA=0; P.loopB=3; persist(); renderAll(); toast("Groove d'exemple rechargé","Rétablir",doUndo); };
+  byId("btnDemo").onclick=()=>{ pushUndo(); groove=JSON.parse(JSON.stringify(DEMO)); groove.bpmCible=groove.bpm; P.tempo=groove.bpm; P.swing=groove.swing; P.loopA=0; P.loopB=3; persist(); renderAll(); toast("Groove d'exemple rechargé","Rétablir",doUndo); };
   byId("btnClear").onclick=()=>{
     if(!confirm("Vider toute la grille ? (vous pourrez encore annuler)")) return;
     pushUndo();
@@ -855,7 +858,7 @@ function chargerGrilleRelue(){
     mesures.push(meas);
   }
   groove={title:(n>1?"Photo — grille "+(RELEC.i+1):"Photo importée"), type:"groove",
-          style:"", url:"", bpm:P.tempo, swing:P.swing, measures:mesures};
+          style:"", url:"", bpm:P.tempo, bpmCible:P.tempo, swing:P.swing, measures:mesures};
   P.loopA=0; P.loopB=totalSteps()/4-1;
   persist(); renderAll(); majRelecture();
 }
@@ -957,7 +960,8 @@ function renderLib(){
     }
     const op=document.createElement("button"); op.className="sbtn"; op.textContent="Ouvrir";
     op.onclick=()=>{ stopPlay(); pushUndo(); groove=JSON.parse(JSON.stringify(g));
-      P.tempo=g.bpm||90; P.swing=g.swing||50; P.loopA=0; P.loopB=totalSteps()/4-1;
+      groove.bpmCible=+g.bpmCible||+g.bpm||90;
+      P.tempo=groove.bpmCible; P.swing=g.swing||50; P.loopA=0; P.loopB=totalSteps()/4-1;
       persist(); renderAll(); document.querySelector('[data-tab="grille"]').click();
       toast("« "+(g.title||"Sans titre")+" » chargé"); };
     const del=document.createElement("button"); del.className="dbtn"; del.textContent="🗑";
@@ -1020,7 +1024,8 @@ function bindIO(){
     try{
       pushUndo();
       groove=parseQuick(byId("quick").value, byId("qTitle").value, +byId("qBpm").value);
-      P.tempo=groove.bpm; P.loopA=0; P.loopB=totalSteps()/4-1;
+      groove.bpmCible=+groove.bpm||90;
+      P.tempo=groove.bpmCible; P.loopA=0; P.loopB=totalSteps()/4-1;
       persist(); renderAll(); toast("Groove importé : "+groove.title);
     }catch(err){ toast("⚠ "+err); }
   };
@@ -1029,7 +1034,8 @@ function bindIO(){
       const g=JSON.parse(byId("json").value);
       if(!g.measures||!g.measures.length) throw "JSON sans mesures";
       pushUndo();
-      groove=g; P.tempo=g.bpm||90; P.swing=g.swing||50; P.loopA=0; P.loopB=totalSteps()/4-1;
+      groove=g; groove.bpmCible=+g.bpmCible||+g.bpm||90;
+      P.tempo=groove.bpmCible; P.swing=g.swing||50; P.loopA=0; P.loopB=totalSteps()/4-1;
       persist(); renderAll(); toast("JSON chargé");
     }catch(err){ toast("⚠ "+err); }
   };
@@ -1314,14 +1320,15 @@ renderAll(); syncCloud(false);
     const d=JSON.parse(json);
     if(!d||!Array.isArray(d.measures)||!d.measures.length) throw new Error("grille invalide");
     pushUndo();
+    const cible=Math.min(200,Math.max(40,+d.bpmCible||+d.bpm||90));
     groove={ title:String(d.title||"Grille importée").slice(0,80),
-             bpm:Math.min(200,Math.max(40,+d.bpm||90)),
+             bpm:cible, bpmCible:cible,
              swing:Math.min(75,Math.max(50,+d.swing||50)),
              measures:d.measures.slice(0,4).map(m=>Array.from({length:16},(_,i)=>{
                const c=(m&&m[i])||{};
                return { v:(c.v==="B"||c.v==="S"||c.v==="s")?c.v:null,
                         h:(c.h==="R"||c.h==="L")?c.h:null }; })) };
-    P.tempo=groove.bpm; P.swing=groove.swing; P.loopA=0; P.loopB=groove.measures.length*4-1;
+    P.tempo=groove.bpmCible; P.swing=groove.swing; P.loopA=0; P.loopB=groove.measures.length*4-1;
     persist(); renderAll();
     const tab=(h.get("tab")||"").replace(/[^a-z]/g,"");
     if(tab){ const b=document.querySelector('.tbtn[data-tab="'+tab+'"]'); if(b) b.click(); }
